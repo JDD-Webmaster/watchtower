@@ -1,0 +1,92 @@
+# Clone this repo (watchtower) and api.watchtower as siblings in the same
+# parent directory before running this — the api/queue/scheduler services
+# build from ../api.watchtower.
+#
+#   git clone https://github.com/JDD-Webmaster/watchtower
+#   git clone https://github.com/JDD-Webmaster/api.watchtower
+#   cd watchtower && docker compose up --build
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: watchtower
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-watchtower}
+      MYSQL_USER: watchtower
+      MYSQL_PASSWORD: ${DB_PASSWORD:-watchtower}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  api:
+    build: ../api.watchtower
+    restart: unless-stopped
+    env_file: ../api.watchtower/.env
+    environment:
+      DB_HOST: mysql
+      DB_DATABASE: watchtower
+      DB_USERNAME: watchtower
+      DB_PASSWORD: ${DB_PASSWORD:-watchtower}
+      REDIS_HOST: redis
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # Processes the queued SMS/email jobs ReminderDispatchService dispatches.
+  queue:
+    build: ../api.watchtower
+    restart: unless-stopped
+    env_file: ../api.watchtower/.env
+    environment:
+      DB_HOST: mysql
+      DB_DATABASE: watchtower
+      DB_USERNAME: watchtower
+      DB_PASSWORD: ${DB_PASSWORD:-watchtower}
+      REDIS_HOST: redis
+    command: php artisan queue:work --tries=3
+    depends_on:
+      - api
+
+  # Runs the Laravel scheduler loop, which is what actually fires
+  # reminders:dispatch hourly (routes/console.php) — without this
+  # container, nothing in WatchTower sends anything, ever.
+  scheduler:
+    build: ../api.watchtower
+    restart: unless-stopped
+    env_file: ../api.watchtower/.env
+    environment:
+      DB_HOST: mysql
+      DB_DATABASE: watchtower
+      DB_USERNAME: watchtower
+      DB_PASSWORD: ${DB_PASSWORD:-watchtower}
+      REDIS_HOST: redis
+    command: php artisan schedule:work
+    depends_on:
+      - api
+
+  web:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  mysql_data:

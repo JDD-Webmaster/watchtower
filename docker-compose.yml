@@ -4,7 +4,8 @@
 #
 #   git clone https://github.com/JDD-Webmaster/watchtower
 #   git clone https://github.com/JDD-Webmaster/api.watchtower
-#   cd watchtower && docker compose up --build
+#   cd watchtower && docker compose up --build -d
+#   docker compose exec api php artisan migrate --force   # first boot only
 
 services:
   mysql:
@@ -27,6 +28,8 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
 
+  # PHP-FPM only, no HTTP server of its own — nginx below terminates
+  # HTTP and fastcgi_pass's to this on :9000, same split as production.
   api:
     build: ../api.watchtower
     restart: unless-stopped
@@ -37,13 +40,22 @@ services:
       DB_USERNAME: watchtower
       DB_PASSWORD: ${DB_PASSWORD:-watchtower}
       REDIS_HOST: redis
-    ports:
-      - "8000:8000"
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_started
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ../api.watchtower/docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../api.watchtower/public:/var/www/html/public:ro
+    ports:
+      - "8000:80"
+    depends_on:
+      - api
 
   # Processes the queued SMS/email jobs ReminderDispatchService dispatches.
   queue:
@@ -73,7 +85,8 @@ services:
       DB_USERNAME: watchtower
       DB_PASSWORD: ${DB_PASSWORD:-watchtower}
       REDIS_HOST: redis
-    command: php artisan schedule:work
+    command: >
+      sh -c "while true; do php artisan schedule:run --no-interaction & sleep 60; done"
     depends_on:
       - api
 

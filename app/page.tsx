@@ -57,7 +57,7 @@ export default function Home() {
         <section className="max-w-5xl mx-auto px-6 py-12 grid sm:grid-cols-3 gap-6">
           <Feature icon={Clock} title="Relentless, not annoying">
             Configurable reminder schedule (30/14/7/1 days out by default), then escalating
-            overdue nudges until it's actually handled — never silently dropped.
+            overdue nudges until it&apos;s actually handled — never silently dropped.
           </Feature>
           <Feature icon={MessageSquare} title="SMS + email">
             Every reminder goes out on both channels by default, to every owner on the account —

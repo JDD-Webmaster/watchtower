@@ -128,6 +128,12 @@ Pushes to `main` deploy automatically once CI passes. To deploy by hand:
 ```bash
 ssh myserver
 cd /home/adewale/apps/watchtower
+
+# The API container chowns storage/ and bootstrap/cache to www-data inside
+# its bind mount, so those files are owned by uid 82 on the host and git
+# can't unlink them without this.
+sudo chown -R adewale:adewale /home/adewale/apps/watchtower
+
 git fetch origin main && git reset --hard origin/main
 docker compose -f /home/adewale/docker/docker-compose.watchtower.yml up -d --build \
   api-watchtower queue-watchtower scheduler-watchtower nextjs-watchtower

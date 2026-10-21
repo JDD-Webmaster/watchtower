@@ -75,6 +75,16 @@ jobs:
             API_DIR=$APP_DIR/api-watchtower
 
             cd $APP_DIR
+
+            # The API container chowns storage/ and bootstrap/cache to
+            # www-data inside its bind mount, so those files end up owned
+            # by uid 82 on the host. Left as-is, the next `git reset
+            # --hard` can't unlink them and the deploy dies with
+            # "unable to unlink ... Permission denied". Take ownership
+            # back before touching git.
+            echo "==> Fixing ownership before git operations..."
+            sudo chown -R adewale:adewale $APP_DIR
+
             PREVIOUS_SHA=$(git rev-parse HEAD)
             echo "==> Current commit before deploy: $PREVIOUS_SHA"
 
@@ -139,6 +149,7 @@ jobs:
 
             if [ "$HEALTHY" != "true" ]; then
               echo "==> API HEALTH CHECK FAILED — rolling back to $PREVIOUS_SHA"
+              sudo chown -R adewale:adewale $APP_DIR
               git reset --hard "$PREVIOUS_SHA"
               $COMPOSE build api-watchtower
               $COMPOSE up -d --no-build --force-recreate api-watchtower
@@ -186,6 +197,7 @@ jobs:
 
             if [ "$HEALTHY" != "true" ]; then
               echo "==> FRONTEND HEALTH CHECK FAILED — rolling back to $PREVIOUS_SHA"
+              sudo chown -R adewale:adewale $APP_DIR
               git reset --hard "$PREVIOUS_SHA"
               $COMPOSE build api-watchtower
               $COMPOSE build nextjs-watchtower

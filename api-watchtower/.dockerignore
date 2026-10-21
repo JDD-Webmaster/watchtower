@@ -1,0 +1,24 @@
+# Keep secrets and local cruft out of the image layers. The API image
+# is built with `COPY . .`, so without this the local .env (which
+# holds real SMS provider keys in production) would be baked into the
+# image and readable by anyone who can pull it.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+vendor/
+node_modules/
+storage/logs/*.log
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/pail/
+bootstrap/cache/*.php
+public/build/
+public/hot
+public/storage
+database/*.sqlite*
+.phpunit.result.cache
+.phpunit.cache/
+.DS_Store

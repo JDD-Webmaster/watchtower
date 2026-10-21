@@ -27,26 +27,52 @@ free to use, no credit card.
 - **Full audit trail.** Every reminder's exact sent content (not just "an
   email was sent") is logged and viewable per deadline.
 
-## Repos
+## Repository layout
 
-This is the web app (Next.js). The API and reminder engine live in a
-separate repo: [JDD-Webmaster/api.watchtower](https://github.com/JDD-Webmaster/api.watchtower)
-— read that repo's README for how the actual reminder logic works.
+One repo, two apps — the backend and the frontend live side by side:
+
+```
+watchtower/
+├── api-watchtower/     Laravel 13 API + the reminder engine
+│   ├── app/            Models, Controllers, Policies, Services, Console\Commands
+│   ├── config/         Includes config/reminders.php — the engine's knobs
+│   ├── database/       Migrations, factories, seeders
+│   ├── routes/         api.php, console.php (the hourly schedule), web.php
+│   ├── tests/          Pest — Feature + Unit
+│   └── Dockerfile      PHP-FPM behind nginx
+│
+├── web-watchtower/     Next.js 16 frontend (App Router)
+│   ├── app/            Route segments: /, /login, /register, /dashboard
+│   ├── components/     Shared React components
+│   ├── lib/            api.ts (fetch client), auth.tsx (session), types.ts
+│   └── Dockerfile      Next.js standalone output
+│
+├── docker-compose.yml  Runs both apps + MySQL + Redis
+├── .github/workflows/  ci.yml (backend + frontend jobs), deploy.yml
+├── ARCHITECTURE.md     How the two halves talk to each other
+└── RUNBOOK.md          Production operations + the server cutover steps
+```
+
+Per-app detail:
+[`api-watchtower/README.md`](api-watchtower/README.md) ·
+[`web-watchtower/README.md`](web-watchtower/README.md)
 
 ## Running it
 
 ### Docker Compose (recommended)
 
-Clone both repos as siblings first:
-
 ```bash
-git clone https://github.com/JDD-Webmaster/watchtower
-git clone https://github.com/JDD-Webmaster/api.watchtower
+git clone https://github.com/JDD-Webmaster/watchtower.git
+cd watchtower
 
-cd api.watchtower && cp .env.example .env   # fill in APP_KEY (php artisan key:generate --show), SMS keys if you have them
-cd ../watchtower && cp .env.local.example .env.local
+# API env — fill in APP_KEY (php artisan key:generate --show), SMS keys if you have them
+cp api-watchtower/.env.example api-watchtower/.env
+
+# Web env
+cp web-watchtower/.env.local.example web-watchtower/.env.local
 
 docker compose up --build
+docker compose exec api php artisan migrate --force   # first boot only
 ```
 
 - Web: http://localhost:3000
@@ -58,7 +84,7 @@ each organization's own timezone) — without it, nothing gets sent, ever.
 ### Local development (without Docker)
 
 ```bash
-# api.watchtower
+# api-watchtower/
 cp .env.example .env
 composer install
 php artisan key:generate
@@ -66,39 +92,42 @@ php artisan migrate
 php artisan serve
 # separate terminals: php artisan queue:work · php artisan schedule:work
 
-# watchtower (this repo)
+# web-watchtower/
 cp .env.local.example .env.local
 npm install
 npm run dev
 ```
 
+## Testing
+
+```bash
+cd api-watchtower && php artisan test   # Pest
+cd web-watchtower && npm run lint && npm run build
+```
+
+The API's Pest suite covers the reminder engine directly — offset matching,
+duplicate-send prevention, overdue escalation cadence, recurrence math
+(including month-end edge cases like Jan 31 → Feb 28), and the full
+authorization layer (org membership, owner-only settings).
+
 ## Configuration
 
-| Env var (api.watchtower) | Purpose |
-|---|---|
-| `REMINDERS_ENABLED` | Platform-wide kill switch for the entire reminder engine (default `true`) |
-| `KUDI_SMS_API_KEY` / `TERMII_API_KEY` | SMS providers — leave blank to run email-only |
-| `FRONTEND_URL` | Used for CORS and for building real links inside reminder messages |
+| Env var | Where | Purpose |
+|---|---|---|
+| `REMINDERS_ENABLED` | `api-watchtower/.env` | Platform-wide kill switch for the entire reminder engine (default `true`) |
+| `KUDI_SMS_API_KEY` / `TERMII_API_KEY` | `api-watchtower/.env` | SMS providers — leave blank to run email-only |
+| `FRONTEND_URL` | `api-watchtower/.env` | Used for CORS and for building real links inside reminder messages |
+| `NEXT_PUBLIC_API_URL` | `web-watchtower/.env.local` | Where the browser sends API requests |
 
 No SMS keys configured? Reminders still go out by email; SMS attempts log a
 clear "not configured" warning instead of silently failing.
 
 ## Contributing
 
-Issues and PRs welcome, on either repo. The reminder engine is intentionally
-small — `api.watchtower`'s `app/Console/Commands/DispatchReminders.php` and
-`app/Services/ReminderDispatchService.php` are the whole thing, worth
-reading end to end before changing either.
-
-## Roadmap (not yet built)
-
-- A simple REST API for other apps to register/update deadlines
-  programmatically (first integration target: [UseLodger](https://uselodger.com),
-  for hosts tracking their own domain/hosting/levy deadlines alongside their
-  property business)
-- Auto-discovery of renewal dates from domain registrars/hosting providers
-  (where their APIs allow it)
-- Paid hosted tiers (the hosted instance is free for now)
+Issues and PRs welcome. The reminder engine is intentionally small —
+`api-watchtower/app/Console/Commands/DispatchReminders.php` and
+`api-watchtower/app/Services/ReminderDispatchService.php` are the whole thing,
+worth reading end to end before changing either.
 
 ## About
 

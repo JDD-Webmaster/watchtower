@@ -1,41 +1,53 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
+# ─── macOS / Windows ───────────────────────────────────────────
 .DS_Store
-*.pem
+Thumbs.db
+*.log
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
+# ─── Env files ─────────────────────────────────────────────────
+# Real env files are never committed. The `.example` templates ARE
+# committed — they're what the READMEs tell you to copy from, so
+# they have to survive the `.env*` rule that hides the real thing.
+.env
+.env.*
+!.env.example
+!.env.*.example
 
-# env files (can opt-in for committing if needed)
-.env*
+# ─── Laravel API — api-watchtower/ ─────────────────────────────
+/api-watchtower/vendor/
+/api-watchtower/node_modules/
+/api-watchtower/public/build/
+/api-watchtower/public/hot
+/api-watchtower/public/storage
+/api-watchtower/public/fonts-manifest.dev.json
+/api-watchtower/storage/*.key
+/api-watchtower/storage/pail/
+/api-watchtower/.phpactor.json
+/api-watchtower/.phpunit.result.cache
+/api-watchtower/.phpunit.cache/
+/api-watchtower/auth.json
+/api-watchtower/_ide_helper.php
+/api-watchtower/Homestead.json
+/api-watchtower/Homestead.yaml
+/api-watchtower/.codex/
+/api-watchtower/.cursor/
+/api-watchtower/.idea/
+/api-watchtower/.nova/
+/api-watchtower/.vscode/
+/api-watchtower/.zed/
 
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# ─── Next.js web — web-watchtower/ ─────────────────────────────
+/web-watchtower/node_modules/
+/web-watchtower/.next/
+/web-watchtower/out/
+/web-watchtower/build/
+/web-watchtower/coverage/
+/web-watchtower/.vercel/
+/web-watchtower/next-env.d.ts
+/web-watchtower/tsconfig.tsbuildinfo
+/web-watchtower/.pnp
+/web-watchtower/.pnp.*
+/web-watchtower/.yarn/*
+/web-watchtower/npm-debug.log*
+/web-watchtower/yarn-debug.log*
+/web-watchtower/yarn-error.log*
+/web-watchtower/pnpm-debug.log*

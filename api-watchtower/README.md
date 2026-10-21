@@ -1,12 +1,12 @@
-# api.watchtower
+# api-watchtower
 
-The API and reminder engine behind [WatchTower](https://github.com/JDD-Webmaster/watchtower)
+The API and reminder engine behind [WatchTower](https://watchtower.uselodger.com)
 — log a renewal/compliance deadline once, get reminded by SMS and email on a
 schedule, escalating once overdue, until someone marks it done.
 
-This repo is backend-only. The web app lives at
-[JDD-Webmaster/watchtower](https://github.com/JDD-Webmaster/watchtower), which
-also hosts the combined `docker-compose.yml` for running both together.
+This is the backend half of the WatchTower monorepo. The Next.js frontend
+lives alongside it in [`web-watchtower/`](../web-watchtower), and the
+`docker-compose.yml` that runs both is at the repo root.
 
 ## Stack
 
@@ -33,6 +33,8 @@ late never drifts the schedule forward.
 
 ## Local development
 
+From this directory:
+
 ```bash
 cp .env.example .env
 composer install
@@ -44,6 +46,9 @@ php artisan serve
 php artisan queue:work
 php artisan schedule:work
 ```
+
+Or run the whole stack (API + web + MySQL + Redis) from the repo root with
+`docker compose up --build`.
 
 ## Testing
 
@@ -58,12 +63,14 @@ authorization layer (org membership, owner-only settings).
 
 ## Deployment
 
-Production runs at `https://api-watchtower.uselodger.com`. See the root
-`docker-compose.yml` in the [watchtower](https://github.com/JDD-Webmaster/watchtower)
-repo for the containers this needs (`api`, `queue`, `scheduler` all build
-from this repo; `scheduler` is what actually fires reminders — nothing
-sends without it running).
+Production runs at `https://api-watchtower.uselodger.com`. The deploy
+workflow (`.github/workflows/deploy.yml` at the repo root) builds this app
+and the frontend from the same commit; see [RUNBOOK.md](../RUNBOOK.md) for
+the container layout and the operational details.
+
+The `scheduler` container is what actually fires reminders — nothing sends
+without it running.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](../LICENSE).

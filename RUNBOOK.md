@@ -13,6 +13,12 @@ the old two-repo layout to this monorepo.
 
 ## One-time server cutover (old layout → monorepo)
 
+> **Done — 21 Oct 2026.** The server now runs the monorepo layout: one
+> checkout at `/home/adewale/apps/watchtower` holding `api-watchtower/` and
+> `web-watchtower/`, with the compose file building from those paths. The
+> steps below are kept for reference — if the server is ever rebuilt from
+> scratch, follow them in order.
+
 The production server still has the pre-monorepo layout: two separate
 checkouts, and a compose file that builds from both of them. This needs to
 be done **by hand, once**, before the new deploy workflow can work. Everything
@@ -125,7 +131,19 @@ cd /home/adewale/apps/watchtower
 git fetch origin main && git reset --hard origin/main
 docker compose -f /home/adewale/docker/docker-compose.watchtower.yml up -d --build \
   api-watchtower queue-watchtower scheduler-watchtower nextjs-watchtower
+
+# The container bind-mounts the checkout, so the image's vendor/ is invisible
+# at runtime. This has to happen before any artisan command will run.
+docker exec api-watchtower composer install --no-dev --optimize-autoloader --no-scripts
+docker exec api-watchtower php artisan clear-compiled
+docker exec api-watchtower composer dump-autoload --no-dev --optimize
+docker exec api-watchtower php artisan package:discover
+docker exec api-watchtower chown -R www-data:www-data /var/www/html/vendor /var/www/html/bootstrap/cache
 docker exec api-watchtower php artisan migrate --force
+docker exec api-watchtower php artisan config:cache
+docker exec api-watchtower php artisan route:cache
+docker exec api-watchtower php artisan view:cache
+docker exec api-watchtower php artisan event:cache
 ```
 
 ### Check that reminders are actually going out

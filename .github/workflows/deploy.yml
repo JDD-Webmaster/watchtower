@@ -100,11 +100,18 @@ jobs:
             docker exec api-watchtower chown -R www-data:www-data /var/www/html/storage
             docker exec api-watchtower chmod -R 775 /var/www/html/storage
 
-            echo "==> Clearing compiled provider manifest before reinstalling..."
-            docker exec api-watchtower php artisan clear-compiled
-
+            # Order matters here. The container bind-mounts the checkout, so
+            # the image's vendor/ is invisible at runtime and vendor/ has to
+            # exist on the host before any artisan command will run —
+            # `clear-compiled` dies with "failed to open vendor/autoload.php"
+            # on a fresh checkout. Install without scripts first, then clear
+            # the stale manifest, then regenerate the autoloader and the
+            # package manifest.
             echo "==> Installing composer dependencies against the live bind mount..."
-            docker exec api-watchtower composer install --no-dev --optimize-autoloader
+            docker exec api-watchtower composer install --no-dev --optimize-autoloader --no-scripts
+            docker exec api-watchtower php artisan clear-compiled
+            docker exec api-watchtower composer dump-autoload --no-dev --optimize
+            docker exec api-watchtower php artisan package:discover
             docker exec api-watchtower chown -R www-data:www-data /var/www/html/vendor /var/www/html/bootstrap/cache
 
             echo "==> Running migrations..."
@@ -137,8 +144,10 @@ jobs:
               $COMPOSE up -d --no-build --force-recreate api-watchtower
               docker exec api-watchtower chown -R www-data:www-data /var/www/html/storage
               docker exec api-watchtower chmod -R 775 /var/www/html/storage
+              docker exec api-watchtower composer install --no-dev --optimize-autoloader --no-scripts
               docker exec api-watchtower php artisan clear-compiled
-              docker exec api-watchtower composer install --no-dev --optimize-autoloader
+              docker exec api-watchtower composer dump-autoload --no-dev --optimize
+              docker exec api-watchtower php artisan package:discover
               docker exec api-watchtower chown -R www-data:www-data /var/www/html/vendor /var/www/html/bootstrap/cache
               docker exec api-watchtower php artisan migrate --force
               docker exec api-watchtower php artisan config:cache

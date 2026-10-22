@@ -27,8 +27,27 @@ export default function NewDeadlinePage() {
 
   if (!activeOrg) return null;
 
-  const removeTarget = (memberId: number) => {
-    setTargets((prev) => prev.filter((t) => t.user_id !== memberId));
+  const toggleTarget = (memberId: number) => {
+    setTargets((prev) => {
+      const exists = prev.find((t) => t.user_id === memberId);
+      if (exists) return prev.filter((t) => t.user_id !== memberId);
+      return [...prev, { user_id: memberId, channels: ["email", "sms"] }];
+    });
+  };
+
+  const toggleChannel = (memberId: number, channel: "email" | "sms") => {
+    setTargets((prev) =>
+      prev.map((t) =>
+        t.user_id === memberId
+          ? {
+              ...t,
+              channels: t.channels.includes(channel)
+                ? t.channels.filter((c) => c !== channel)
+                : [...t.channels, channel],
+            }
+          : t,
+      ),
+    );
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -62,10 +81,12 @@ export default function NewDeadlinePage() {
 
       <form onSubmit={onSubmit} className="space-y-6">
         <DeadlineFormFields
+          activeOrgId={activeOrg.id}
           form={form}
           onChange={(patch) => setForm({ ...form, ...patch })}
           targets={targets}
-          onRemoveTarget={removeTarget}
+          onToggleTarget={toggleTarget}
+          onToggleChannel={toggleChannel}
         />
 
         <div className="flex items-center gap-3">

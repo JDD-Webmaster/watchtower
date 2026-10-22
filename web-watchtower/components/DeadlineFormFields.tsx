@@ -1,7 +1,9 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { Users, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Mail, MessageSquare, Users } from "lucide-react";
 import { Combobox } from "@/components/Combobox";
+import { api } from "@/lib/api";
 import { CATEGORY_PRESETS, type Recurrence } from "@/lib/types";
 
 export interface DeadlineFormValue {
@@ -14,23 +16,44 @@ export interface DeadlineFormValue {
   owner_user_id: number | string;
 }
 
+export interface NotificationTargetDraft {
+  user_id: number;
+  channels: string[];
+}
+
+interface OrgMember {
+  id: number;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+}
+
 const inputClass =
   "mt-1.5 w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10";
 
 /** The "Details" + "Who gets notified" cards shared by the add and edit
  *  deadline forms, so the two stay in sync instead of drifting apart. */
 export function DeadlineFormFields({
+  activeOrgId,
   form,
   onChange,
   targets,
-  onRemoveTarget,
+  onToggleTarget,
+  onToggleChannel,
 }: {
+  activeOrgId: number;
   form: DeadlineFormValue;
   onChange: (patch: Partial<DeadlineFormValue>) => void;
-  targets: Array<{ user_id: number; channels: string[]; user?: { name: string } }>;
-  onRemoveTarget: (memberId: number) => void;
+  targets: NotificationTargetDraft[];
+  onToggleTarget: (memberId: number) => void;
+  onToggleChannel: (memberId: number, channel: "email" | "sms") => void;
 }) {
   const router = useRouter();
+
+  const { data: members, isLoading: membersLoading } = useQuery({
+    queryKey: ["org-members", activeOrgId],
+    queryFn: () => api.get<{ data: OrgMember[] }>(`/organizations/${activeOrgId}/members`).then((r) => r.data),
+  });
 
   return (
     <>
@@ -124,8 +147,8 @@ export function DeadlineFormFields({
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="font-semibold text-slate-900">Who gets notified</h2>
           <p className="text-sm text-slate-500">
-            Choose who receives SMS and email reminders for this deadline. Leave empty to use org
-            defaults (owners + item owner).
+            Choose who receives SMS and email reminders for this deadline. Leave everyone unchecked
+            to use org defaults (owners + item owner).
           </p>
         </div>
         <div className="p-6">
@@ -140,34 +163,75 @@ export function DeadlineFormFields({
               Manage team
             </button>
           </div>
-          <div className="mt-4 rounded-lg border border-dashed border-slate-300 p-6 text-center">
-            <p className="text-sm text-slate-500">
-              Add team members in{" "}
-              <button
-                type="button"
-                onClick={() => router.push("/dashboard/team")}
-                className="font-medium text-slate-900 underline underline-offset-2"
-              >
-                Team management
-              </button>{" "}
-              to pick specific people per deadline.
-            </p>
-            {targets.length > 0 && (
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {targets.map((t) => (
-                  <span
-                    key={t.user_id}
-                    className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700"
-                  >
-                    {t.user?.name ?? `Member #${t.user_id}`}
-                    <button type="button" onClick={() => onRemoveTarget(t.user_id)}>
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+
+          {membersLoading ? (
+            <p className="mt-4 text-sm text-slate-400">Loading team…</p>
+          ) : !members?.length ? (
+            <div className="mt-4 rounded-lg border border-dashed border-slate-300 p-6 text-center">
+              <p className="text-sm text-slate-500">
+                You&apos;re the only one in this organization.{" "}
+                <button
+                  type="button"
+                  onClick={() => router.push("/dashboard/team")}
+                  className="font-medium text-slate-900 underline underline-offset-2"
+                >
+                  Invite teammates
+                </button>{" "}
+                to pick specific people per deadline.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
+              {members.map((member) => {
+                const target = targets.find((t) => t.user_id === member.id);
+                const included = Boolean(target);
+                return (
+                  <div key={member.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <label className="flex min-w-0 items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={included}
+                        onChange={() => onToggleTarget(member.id)}
+                        className="h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-900/20"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-slate-900">{member.name}</span>
+                        <span className="block truncate text-xs text-slate-500">{member.email}</span>
+                      </span>
+                    </label>
+                    {included && (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onToggleChannel(member.id, "email")}
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                            target?.channels.includes("email")
+                              ? "bg-slate-900 text-white"
+                              : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                          }`}
+                        >
+                          <Mail className="h-3 w-3" />
+                          Email
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onToggleChannel(member.id, "sms")}
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                            target?.channels.includes("sms")
+                              ? "bg-slate-900 text-white"
+                              : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                          }`}
+                        >
+                          <MessageSquare className="h-3 w-3" />
+                          SMS
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
     </>

@@ -2,7 +2,10 @@
 
 use App\Models\Organization;
 use App\Models\User;
+use App\Notifications\ResetPasswordNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
 
 uses(RefreshDatabase::class);
 
@@ -85,6 +88,66 @@ describe('Logout', function () {
             ->assertStatus(200);
 
         $this->postJson('/api/logout')->assertStatus(200);
+    });
+
+});
+
+describe('Password reset', function () {
+
+    it('emails a reset link and resets the password with the token', function () {
+        Notification::fake();
+
+        $user = User::factory()->create(['password' => bcrypt('password123')]);
+
+        $this->postJson('/api/forgot-password', ['email' => $user->email])
+            ->assertStatus(200);
+
+        Notification::assertSentTo($user, ResetPasswordNotification::class);
+
+        // The notification carries the plaintext token; the broker stores
+        // a hash of it. Pull the plaintext back out of the notification.
+        $token = null;
+        Notification::assertSentTo($user, ResetPasswordNotification::class,
+            function ($notification) use (&$token) {
+                $token = $notification->token;
+
+                return true;
+            });
+
+        $this->postJson('/api/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'newpassword123',
+            'password_confirmation' => 'newpassword123',
+        ])->assertStatus(200);
+
+        expect(Password::broker()->tokenExists($user, $token))->toBeFalse();
+
+        $this->postJson('/api/login', [
+            'email' => $user->email,
+            'password' => 'newpassword123',
+        ])->assertStatus(200);
+    });
+
+    it('does not reveal whether an email is registered', function () {
+        Notification::fake();
+
+        $this->postJson('/api/forgot-password', ['email' => 'nobody@example.com'])
+            ->assertStatus(200)
+            ->assertJsonPath('message', 'If an account exists with that email, you will receive a password reset link shortly.');
+
+        Notification::assertNothingSent();
+    });
+
+    it('rejects a bad token', function () {
+        $user = User::factory()->create(['password' => bcrypt('password123')]);
+
+        $this->postJson('/api/reset-password', [
+            'token' => 'not-a-real-token',
+            'email' => $user->email,
+            'password' => 'newpassword123',
+            'password_confirmation' => 'newpassword123',
+        ])->assertStatus(422);
     });
 
 });

@@ -89,4 +89,9 @@ class DeadlineItem extends Model
             default => $this->due_date->copy(),
         };
     }
+
+    public function notificationTargets(): HasMany
+    {
+        return $this->hasMany(DeadlineItemNotificationTarget::class);
+    }
 }

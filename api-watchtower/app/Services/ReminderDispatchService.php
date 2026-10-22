@@ -4,9 +4,14 @@ namespace App\Services;
 
 use App\Models\DeadlineItem;
 use App\Models\ReminderLog;
+use App\Models\SmsChargeLog;
+use App\Models\SmsRate;
 use App\Models\User;
+use App\Models\Wallet;
+use App\Models\WalletTransaction;
 use App\Services\Sms\SmsRouter;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -14,6 +19,11 @@ use Illuminate\Support\Facades\Mail;
 // is logged, this is what makes it impossible to silently forget — every
 // due reminder gets an attempt on every enabled channel, logged with the
 // exact text sent, regardless of outcome.
+//
+// Now enhanced with: per-deadline notification targets, org timezone awareness,
+// and a dedicated SMS wallet (charge on successful send only, never platform
+// fallback). If wallet is insufficient for SMS, SMS is skipped with a clear log
+// — email still goes out as configured.
 class ReminderDispatchService
 {
     public function __construct(private readonly SmsRouter $sms) {}
@@ -29,6 +39,17 @@ class ReminderDispatchService
             $wantsEmail = $prefs['email'] ?? true;
             $wantsSms = $prefs['sms'] ?? true;
 
+            // Also respect per-org member settings if they exist
+            $member = $item->organization->members()->where('user_id', $user->id)->first();
+            if ($member) {
+                if (! $member->can_receive_email) {
+                    $wantsEmail = false;
+                }
+                if (! $member->can_receive_sms) {
+                    $wantsSms = false;
+                }
+            }
+
             if ($wantsEmail) {
                 $this->sendEmail($item, $user, $daysUntil, $isOverdue);
             }
@@ -39,11 +60,24 @@ class ReminderDispatchService
         }
     }
 
-    // Owner of the item plus every org member with the 'owner' role —
-    // accountability shouldn't live with one person who might be on
-    // leave, but the item's own owner always hears about it directly.
+    // Recipients resolution order:
+    // 1. If the deadline has explicit notification_targets set, use those (with per-target channels)
+    // 2. Otherwise fall back to org owners + item owner (original behavior)
     private function recipients(DeadlineItem $item): Collection
     {
+        $item->loadMissing('notificationTargets.user');
+
+        if ($item->notificationTargets->isNotEmpty()) {
+            $users = $item->notificationTargets
+                ->map(fn ($target) => $target->user)
+                ->filter()
+                ->unique('id');
+
+            if ($users->isNotEmpty()) {
+                return $users;
+            }
+        }
+
         $orgOwners = $item->organization->users()->wherePivot('role', 'owner')->get();
 
         return $orgOwners->push($item->owner)->unique('id');
@@ -92,10 +126,108 @@ class ReminderDispatchService
             return;
         }
 
+        $org = $item->organization;
+        $country = strtoupper($user->country ?: 'NG');
+        $costCents = $this->getSmsCostCents($country);
+
+        // Wallet-based charging: if a wallet exists for the org, enforce balance.
+        // Never fall back to platform owner account. If insufficient, block SMS
+        // and log clearly so the org knows to fund their wallet.
+        $wallet = $org->wallet()->where('currency', 'NGN')->first();
+        if ($wallet && $wallet->status === 'active' && $costCents > 0) {
+            if (($wallet->available_cents ?? 0) < $costCents) {
+                $this->log($item, $user, 'sms', '', false, "Insufficient wallet funds for SMS (need {$costCents} cents, have ".($wallet->available_cents ?? 0).' cents). Fund your organization wallet.');
+                Log::warning('[ReminderDispatchService] SMS blocked - insufficient wallet funds', [
+                    'organization_id' => $org->id,
+                    'user_id' => $user->id,
+                    'deadline_item_id' => $item->id,
+                    'cost_cents' => $costCents,
+                    'available_cents' => $wallet->available_cents,
+                ]);
+
+                return;
+            }
+        }
+
         $content = $this->smsBody($item, $daysUntil, $isOverdue);
         $success = $this->sms->send($user->phone, $content, countryIso2: $user->country);
 
+        if ($success && $wallet && $wallet->status === 'active' && $costCents > 0) {
+            $this->chargeSms($wallet, $org, $user, $item, $costCents, $country);
+        }
+
         $this->log($item, $user, 'sms', $content, $success, $success ? null : 'SMS send failed');
+    }
+
+    private function getSmsCostCents(string $countryIso2): int
+    {
+        $rate = SmsRate::where('country_iso2', $countryIso2)
+            ->where('is_active', true)
+            ->orderByDesc('effective_at')
+            ->first();
+
+        if ($rate) {
+            return $rate->rate_cents_per_sms;
+        }
+
+        // Fallback defaults if not configured in DB
+        return $countryIso2 === 'NG' ? 4 : 15;
+    }
+
+    private function chargeSms(Wallet $wallet, $org, User $user, DeadlineItem $item, int $costCents, string $countryIso2): void
+    {
+        try {
+            DB::transaction(function () use ($wallet, $org, $user, $item, $costCents, $countryIso2) {
+                $w = Wallet::where('id', $wallet->id)->lockForUpdate()->first();
+                if (($w->available_cents ?? 0) < $costCents) {
+                    return;
+                }
+
+                $w->balance_cents -= $costCents;
+                $w->available_cents -= $costCents;
+                $w->save();
+
+                $tx = WalletTransaction::create([
+                    'wallet_id' => $w->id,
+                    'organization_id' => $org->id,
+                    'user_id' => $user->id,
+                    'type' => 'debit',
+                    'amount_cents' => -$costCents,
+                    'fee_cents' => 0,
+                    'net_cents' => -$costCents,
+                    'reason' => 'sms_charge',
+                    'reference' => null,
+                    'idempotency_key' => 'sms:'.$item->id.':'.$user->id.':'.now()->toDateString(),
+                    'meta' => ['deadline_item_id' => $item->id, 'country' => $countryIso2],
+                    'balance_after_cents' => $w->balance_cents,
+                ]);
+
+                $log = ReminderLog::where('deadline_item_id', $item->id)
+                    ->where('user_id', $user->id)
+                    ->where('channel', 'sms')
+                    ->latest()
+                    ->first();
+
+                SmsChargeLog::create([
+                    'reminder_log_id' => $log?->id,
+                    'wallet_transaction_id' => $tx->id,
+                    'organization_id' => $org->id,
+                    'user_id' => $user->id,
+                    'provider' => $countryIso2 === 'NG' ? 'kudi' : 'termii',
+                    'country_iso2' => $countryIso2,
+                    'cost_cents' => $costCents,
+                    'status' => 'charged',
+                    'meta' => ['deadline_item_id' => $item->id],
+                    'charged_at' => now(),
+                ]);
+            });
+        } catch (\Throwable $e) {
+            Log::error('[ReminderDispatchService] SMS charge failed', [
+                'organization_id' => $org->id,
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function subject(DeadlineItem $item, int $daysUntil, bool $isOverdue): string

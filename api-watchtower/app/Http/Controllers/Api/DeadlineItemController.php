@@ -17,7 +17,7 @@ class DeadlineItemController extends Controller
         $this->authorize('view', $organization);
 
         $items = $organization->deadlineItems()
-            ->with(['owner', 'reminderRule'])
+            ->with(['owner', 'reminderRule', 'notificationTargets'])
             ->when($request->status, fn ($q) => $q->where('status', $request->status))
             ->orderBy('due_date')
             ->get();
@@ -32,7 +32,11 @@ class DeadlineItemController extends Controller
         $data = $this->validated($request, $organization);
         $item = $organization->deadlineItems()->create($data);
 
-        return response()->json(['data' => new DeadlineItemResource($item->load(['owner']))], 201);
+        if ($request->has('notification_targets')) {
+            $this->syncNotificationTargets($request, $item);
+        }
+
+        return response()->json(['data' => new DeadlineItemResource($item->load(['owner', 'notificationTargets']))], 201);
     }
 
     public function show(DeadlineItem $deadlineItem): JsonResponse
@@ -40,7 +44,7 @@ class DeadlineItemController extends Controller
         $this->authorize('view', $deadlineItem);
 
         return response()->json([
-            'data' => new DeadlineItemResource($deadlineItem->load(['owner', 'reminderRule'])),
+            'data' => new DeadlineItemResource($deadlineItem->load(['owner', 'reminderRule', 'notificationTargets.user'])),
         ]);
     }
 
@@ -51,7 +55,11 @@ class DeadlineItemController extends Controller
         $data = $this->validated($request, $deadlineItem->organization, updating: true);
         $deadlineItem->update($data);
 
-        return response()->json(['data' => new DeadlineItemResource($deadlineItem->load(['owner']))]);
+        if ($request->has('notification_targets')) {
+            $this->syncNotificationTargets($request, $deadlineItem);
+        }
+
+        return response()->json(['data' => new DeadlineItemResource($deadlineItem->load(['owner', 'notificationTargets']))]);
     }
 
     public function destroy(DeadlineItem $deadlineItem): JsonResponse
@@ -109,6 +117,29 @@ class DeadlineItemController extends Controller
                 },
             ],
             'is_active' => 'boolean',
+            'notification_targets' => 'nullable|array',
+            'notification_targets.*.user_id' => 'required_with:notification_targets|integer',
+            'notification_targets.*.channels' => 'nullable|array',
+            'notification_targets.*.channels.*' => 'in:email,sms',
         ]);
+    }
+
+    private function syncNotificationTargets(Request $request, DeadlineItem $item): void
+    {
+        $targets = $request->input('notification_targets', []);
+        $item->notificationTargets()->delete();
+
+        foreach ($targets as $target) {
+            if (empty($target['user_id'])) {
+                continue;
+            }
+            if (! $item->organization->users()->where('user_id', $target['user_id'])->exists()) {
+                continue;
+            }
+            $item->notificationTargets()->create([
+                'user_id' => $target['user_id'],
+                'channels' => $target['channels'] ?? ['email', 'sms'],
+            ]);
+        }
     }
 }

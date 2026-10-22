@@ -32,6 +32,11 @@ class DeadlineItemResource extends JsonResource
                 'offsets_days' => $this->reminderRule->offsets_days,
                 'overdue_repeat_days' => $this->reminderRule->overdue_repeat_days,
             ] : null),
+            'notification_targets' => $this->whenLoaded('notificationTargets', fn () => $this->notificationTargets->map(fn ($t) => [
+                'user_id' => $t->user_id,
+                'channels' => $t->channels,
+                'user' => $t->user ? new UserResource($t->user) : null,
+            ])),
             'created_at' => $this->created_at->toIso8601String(),
         ];
     }

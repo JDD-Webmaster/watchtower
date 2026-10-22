@@ -5,6 +5,7 @@ import { CheckCircle2, AlertTriangle, Clock, CalendarCheck } from "lucide-react"
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { StatusBreakdownBar } from "@/components/charts/StatusBreakdownBar";
 import type { DeadlineItem } from "@/lib/types";
 
 export default function DashboardPage() {
@@ -49,6 +50,14 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <StatusBreakdownBar
+        segments={[
+          { key: "overdue", label: "Overdue", count: overdue.length, barClass: "bg-red-600", iconClass: "text-red-600", icon: AlertTriangle },
+          { key: "due_soon", label: "Due soon", count: dueSoon.length, barClass: "bg-amber-500", iconClass: "text-amber-600", icon: Clock },
+          { key: "upcoming", label: "Upcoming", count: upcoming.length, barClass: "bg-slate-400", iconClass: "text-slate-500", icon: CalendarCheck },
+          { key: "done", label: "Done", count: done.length, barClass: "bg-emerald-600", iconClass: "text-emerald-600", icon: CheckCircle2 },
+        ]}
+      />
       <Group title="Overdue" icon={AlertTriangle} iconClass="text-red-600" items={overdue} onMarkDone={markDoneMut.mutate} />
       <Group title="Due soon" icon={Clock} iconClass="text-amber-600" items={dueSoon} onMarkDone={markDoneMut.mutate} />
       <Group title="Upcoming" icon={CalendarCheck} iconClass="text-slate-500" items={upcoming} onMarkDone={markDoneMut.mutate} />

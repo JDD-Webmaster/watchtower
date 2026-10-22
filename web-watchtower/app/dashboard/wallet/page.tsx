@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { ArrowDownCircle, ArrowUpCircle, CreditCard, Wallet } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { BalanceTrendChart } from "@/components/charts/BalanceTrendChart";
+import type { Wallet as WalletData, WalletTransaction } from "@/lib/types";
 
 const PRESETS = [500, 1000, 2000, 5000];
 
@@ -16,13 +18,18 @@ export default function WalletPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["wallet", activeOrg?.id],
-    queryFn: () => api.get<{ data: any }>(`/organizations/${activeOrg!.id}/wallet`).then((r) => r.data),
+    queryFn: () =>
+      api
+        .get<{ data: { wallet: WalletData; transactions: WalletTransaction[] } }>(
+          `/organizations/${activeOrg!.id}/wallet`,
+        )
+        .then((r) => r.data),
     enabled: !!activeOrg,
   });
 
   const fundMut = useMutation({
     mutationFn: () => api.post(`/organizations/${activeOrg!.id}/wallet/fund`, { amount: Number(custom) || amount }),
-    onSuccess: (res: any) => {
+    onSuccess: () => {
       toast.info("Payment initialized. Complete payment in the Paystack popup.");
       qc.invalidateQueries({ queryKey: ["wallet", activeOrg?.id] });
     },
@@ -34,6 +41,9 @@ export default function WalletPage() {
   const wallet = data?.wallet;
   const txns = data?.transactions || [];
   const balance = ((wallet?.available_cents || 0) / 100).toFixed(2);
+  const trendPoints = [...txns]
+    .reverse()
+    .map((t) => ({ date: t.created_at, balance: t.balance_after_cents / 100 }));
 
   return (
     <div className="max-w-4xl">
@@ -125,6 +135,13 @@ export default function WalletPage() {
         </section>
       </div>
 
+      {trendPoints.length >= 2 && (
+        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 font-semibold text-slate-900">Balance trend</h2>
+          <BalanceTrendChart points={trendPoints} />
+        </section>
+      )}
+
       <section className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="font-semibold text-slate-900">Recent transactions</h2>
@@ -135,7 +152,7 @@ export default function WalletPage() {
           ) : txns.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No transactions yet.</div>
           ) : (
-            txns.map((tx: any) => (
+            txns.map((tx) => (
               <div key={tx.id} className="flex items-center justify-between p-6">
                 <div className="flex items-center gap-3">
                   <div

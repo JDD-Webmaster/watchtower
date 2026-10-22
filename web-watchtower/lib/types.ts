@@ -50,6 +50,26 @@ export interface ReminderRule {
   overdue_repeat_days: number;
 }
 
+export interface Wallet {
+  id: number;
+  currency: string;
+  balance_cents: number;
+  available_cents: number;
+  held_cents: number;
+  status: string;
+}
+
+export interface WalletTransaction {
+  id: number;
+  type: "credit" | "debit";
+  amount_cents: number;
+  net_cents: number;
+  reason: string;
+  reference: string | null;
+  balance_after_cents: number;
+  created_at: string;
+}
+
 export interface ReminderLog {
   id: number;
   channel: "sms" | "email";

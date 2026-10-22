@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -13,12 +13,14 @@ import {
   PasswordField,
 } from "@/components/AuthInputs";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get("invite");
   const { user, isLoading, refetchUser } = useAuth();
   const [form, setForm] = useState({
     name: "",
-    email: "",
+    email: searchParams.get("email") ?? "",
     password: "",
     password_confirmation: "",
     organization_name: "",
@@ -27,10 +29,25 @@ export default function RegisterPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [inviteOrgName, setInviteOrgName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && user) router.replace("/dashboard");
   }, [isLoading, user, router]);
+
+  useEffect(() => {
+    if (!inviteToken) return;
+    api
+      .get<{ data: { organization_name: string; email: string } }>(`/invitations/${inviteToken}`)
+      .then((res) => {
+        setInviteOrgName(res.data.organization_name);
+        setForm((f) => ({ ...f, email: res.data.email }));
+      })
+      .catch(() => {
+        // Expired/invalid token — fall back to a normal signup, the
+        // email query param (if any) still prefilled the field above.
+      });
+  }, [inviteToken]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,6 +121,13 @@ export default function RegisterPage() {
         </p>
       </div>
 
+      {inviteOrgName && (
+        <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm text-slate-700">
+          You&apos;ve been invited to join <strong>{inviteOrgName}</strong>. Create your
+          account with this email address and you&apos;ll be added automatically.
+        </div>
+      )}
+
       {formError && (
         <div
           role="alert"
@@ -143,34 +167,38 @@ export default function RegisterPage() {
           />
         </AuthField>
 
-        <AuthField
-          id="organization_name"
-          label="Organisation"
-          error={fieldErrors.organization_name}
-        >
-          <input
-            id="organization_name"
-            name="organization_name"
-            required
-            autoComplete="organization"
-            placeholder="Okonkwo Properties Ltd"
-            {...field("organization_name")}
-            aria-invalid={Boolean(fieldErrors.organization_name)}
-            aria-describedby={
-              fieldErrors.organization_name
-                ? "organization_name-error"
-                : "organization_name-hint"
-            }
-            className={inputClassName(Boolean(fieldErrors.organization_name))}
-          />
-        </AuthField>
-        {!fieldErrors.organization_name && (
-          <p
-            id="organization_name-hint"
-            className="-mt-2 text-xs text-slate-500"
-          >
-            You can add more later and switch between them.
-          </p>
+        {!inviteOrgName && (
+          <>
+            <AuthField
+              id="organization_name"
+              label="Organisation"
+              error={fieldErrors.organization_name}
+            >
+              <input
+                id="organization_name"
+                name="organization_name"
+                required
+                autoComplete="organization"
+                placeholder="Okonkwo Properties Ltd"
+                {...field("organization_name")}
+                aria-invalid={Boolean(fieldErrors.organization_name)}
+                aria-describedby={
+                  fieldErrors.organization_name
+                    ? "organization_name-error"
+                    : "organization_name-hint"
+                }
+                className={inputClassName(Boolean(fieldErrors.organization_name))}
+              />
+            </AuthField>
+            {!fieldErrors.organization_name && (
+              <p
+                id="organization_name-hint"
+                className="-mt-2 text-xs text-slate-500"
+              >
+                You can add more later and switch between them.
+              </p>
+            )}
+          </>
         )}
 
         <PasswordField
@@ -260,6 +288,14 @@ export default function RegisterPage() {
         </Link>
       </p>
     </AuthShell>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
   );
 }
 

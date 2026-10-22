@@ -2,9 +2,25 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Mail, Plus, Shield, Trash2, UserPlus } from "lucide-react";
+import { Clock, Mail, Plus, Shield, Trash2, UserPlus, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+
+interface Member {
+  id: number;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+  can_receive_email: boolean;
+  can_receive_sms: boolean;
+}
+
+interface Invitation {
+  id: number;
+  email: string;
+  role: "admin" | "member";
+  invited_at: string;
+}
 
 export default function TeamPage() {
   const { activeOrg } = useAuth();
@@ -13,16 +29,19 @@ export default function TeamPage() {
   const [role, setRole] = useState<"admin" | "member">("member");
   const [inviteOpen, setInviteOpen] = useState(false);
 
-  const { data: members = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["team", activeOrg?.id],
-    queryFn: () => api.get<{ data: any[] }>(`/organizations/${activeOrg!.id}/members`).then((r) => r.data),
+    queryFn: () =>
+      api.get<{ data: Member[]; invitations: Invitation[] }>(`/organizations/${activeOrg!.id}/members`),
     enabled: !!activeOrg,
   });
+  const members = data?.data ?? [];
+  const invitations = data?.invitations ?? [];
 
   const inviteMut = useMutation({
-    mutationFn: () => api.post(`/organizations/${activeOrg!.id}/members`, { email, role }),
-    onSuccess: () => {
-      toast.success("Member added");
+    mutationFn: () => api.post<{ message: string }>(`/organizations/${activeOrg!.id}/members`, { email, role }),
+    onSuccess: (res) => {
+      toast.success(res.message);
       setEmail("");
       setInviteOpen(false);
       qc.invalidateQueries({ queryKey: ["team", activeOrg?.id] });
@@ -41,6 +60,16 @@ export default function TeamPage() {
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Failed to remove member"),
   });
 
+  const revokeMut = useMutation({
+    mutationFn: (invitationId: number) =>
+      api.delete(`/organizations/${activeOrg!.id}/invitations/${invitationId}`),
+    onSuccess: () => {
+      toast.success("Invitation revoked");
+      qc.invalidateQueries({ queryKey: ["team", activeOrg?.id] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Failed to revoke invitation"),
+  });
+
   if (!activeOrg) return null;
 
   return (
@@ -57,7 +86,7 @@ export default function TeamPage() {
           className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
         >
           <UserPlus className="h-4 w-4" />
-          Add member
+          Invite member
         </button>
       </div>
 
@@ -72,7 +101,7 @@ export default function TeamPage() {
           ) : members.length === 0 ? (
             <div className="p-6 text-sm text-slate-500">No members yet.</div>
           ) : (
-            members.map((member: any) => (
+            members.map((member) => (
               <div key={member.id} className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
@@ -110,13 +139,52 @@ export default function TeamPage() {
         </div>
       </div>
 
+      {invitations.length > 0 && (
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div className="border-b border-slate-200 px-6 py-4">
+            <h2 className="font-semibold text-slate-900">Pending invitations</h2>
+            <p className="text-sm text-slate-500">
+              They&apos;ll join automatically as soon as they create a WatchTower account with this
+              email address.
+            </p>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {invitations.map((invite) => (
+              <div key={invite.id} className="flex items-center justify-between p-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                    <Clock className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-slate-900">{invite.email}</p>
+                    <p className="text-xs text-slate-500">
+                      Invited {new Date(invite.invited_at).toLocaleDateString()} · {invite.role}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => revokeMut.mutate(invite.id)}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Revoke
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {inviteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-slate-900/40" onClick={() => setInviteOpen(false)} />
           <div className="relative w-full max-w-md rounded-xl bg-white shadow-xl">
             <div className="border-b border-slate-200 px-6 py-4">
-              <h3 className="font-semibold text-slate-900">Add team member</h3>
-              <p className="text-sm text-slate-500">They must already have a WatchTower account.</p>
+              <h3 className="font-semibold text-slate-900">Invite team member</h3>
+              <p className="text-sm text-slate-500">
+                If they already have a WatchTower account they&apos;re added right away. Otherwise
+                we&apos;ll email them a signup link and add them the moment they register.
+              </p>
             </div>
             <div className="space-y-4 p-6">
               <div>
@@ -151,7 +219,7 @@ export default function TeamPage() {
                 className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
                 <Plus className="h-4 w-4" />
-                Add member
+                Send invite
               </button>
             </div>
           </div>

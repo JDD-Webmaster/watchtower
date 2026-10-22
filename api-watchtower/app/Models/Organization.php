@@ -55,4 +55,29 @@ class Organization extends Model
     {
         return $this->hasOne(ReminderRule::class);
     }
+
+    public function members(): HasMany
+    {
+        return $this->hasMany(OrganizationMember::class);
+    }
+
+    public function wallet(): HasOne
+    {
+        return $this->hasOne(Wallet::class);
+    }
+
+    public function wallets(): HasMany
+    {
+        return $this->hasMany(Wallet::class);
+    }
+
+    public function paymentIntents(): HasMany
+    {
+        return $this->hasMany(PaymentIntent::class);
+    }
+
+    public function smsChargeLogs(): HasMany
+    {
+        return $this->hasMany(SmsChargeLog::class);
+    }
 }

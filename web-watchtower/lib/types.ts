@@ -3,7 +3,7 @@ export interface Organization {
   name: string;
   slug: string;
   timezone: string;
-  role?: "owner" | "member";
+  role?: "owner" | "member" | "admin";
 }
 
 export interface User {
@@ -14,6 +14,7 @@ export interface User {
   country: string | null;
   notification_preferences: { email: boolean; sms: boolean };
   organizations?: Organization[];
+  timezone?: string | null;
 }
 
 export type DeadlineStatus = "upcoming" | "overdue" | "done";
@@ -34,7 +35,14 @@ export interface DeadlineItem {
   last_completed_at: string | null;
   is_active: boolean;
   reminder_rule?: ReminderRule | null;
+  notification_targets?: NotificationTarget[];
   created_at: string;
+}
+
+export interface NotificationTarget {
+  user_id: number;
+  channels: ("email" | "sms")[];
+  user?: User;
 }
 
 export interface ReminderRule {
@@ -52,4 +60,30 @@ export interface ReminderLog {
   user: User;
 }
 
-export const CATEGORY_PRESETS = ["Domain", "Hosting", "API/Payment Subscription", "Government Levy"];
+export const CATEGORY_PRESETS = [
+  "Domain",
+  "Hosting",
+  "CDN",
+  "SSL Certificate",
+  "API/Payment Subscription",
+  "SaaS/AI Subscription",
+  "Email/Workspace",
+  "Insurance",
+  "Vehicle Registration/Tax",
+  "Rent/Service Charge",
+  "CAC/Business Registration",
+  "Tax/VAT",
+  "License/Permit",
+  "Trademark/Patent",
+  "Utilities (Electric/Water/Gas)",
+  "Loan/EMI",
+  "Maintenance Contract",
+  "Payroll/HR",
+  "IoT/Certificate",
+  "Education",
+  "Health/Medical",
+  "Legal Retainer",
+  "Property Lease",
+  "Government Levy",
+  "Other (custom)",
+];

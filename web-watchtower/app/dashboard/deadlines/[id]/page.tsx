@@ -229,3 +229,5 @@ export default function DeadlineDetailPage({ params }: { params: Promise<{ id: s
     </div>
   );
 }
+
+// Prevent static prerender of client components that use auth context

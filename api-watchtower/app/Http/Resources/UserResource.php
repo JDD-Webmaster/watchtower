@@ -20,6 +20,7 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'phone' => $this->phone,
             'country' => $this->country,
+            'timezone' => $this->timezone,
             'notification_preferences' => $this->notification_preferences ?? ['email' => true, 'sms' => true],
             'organizations' => OrganizationResource::collection($this->whenLoaded('organizations')),
         ];

@@ -15,6 +15,7 @@ class UserController extends Controller
             'name' => 'sometimes|string|max:150',
             'phone' => 'sometimes|nullable|string|max:30',
             'country' => 'sometimes|nullable|string|size:2',
+            'timezone' => 'sometimes|nullable|timezone',
             'notification_preferences' => 'sometimes|array',
             'notification_preferences.email' => 'boolean',
             'notification_preferences.sms' => 'boolean',

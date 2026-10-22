@@ -34,11 +34,12 @@ class DispatchReminders extends Command
         $skipped = 0;
 
         foreach (Organization::all() as $organization) {
-            if (now($organization->timezone)->hour !== self::REMINDER_HOUR) {
+            $tz = $organization->timezone ?: 'UTC';
+            if (now($tz)->hour !== self::REMINDER_HOUR) {
                 continue;
             }
 
-            $today = now($organization->timezone)->startOfDay();
+            $today = now($tz)->startOfDay();
 
             foreach ($organization->deadlineItems()->activeNotDone()->get() as $item) {
                 // due_date is cast as a plain date (app-default-timezone
@@ -47,7 +48,7 @@ class DispatchReminders extends Command
                 // fractional day count that never matches a clean integer
                 // offset (e.g. 7.04 instead of 7). Re-anchor the due date
                 // as a calendar date IN the org's own timezone first.
-                $dueDateInOrgTz = Carbon::parse($item->due_date->toDateString(), $organization->timezone)->startOfDay();
+                $dueDateInOrgTz = Carbon::parse($item->due_date->toDateString(), $tz)->startOfDay();
                 $daysUntil = (int) round($today->diffInDays($dueDateInOrgTz, false));
                 $isOverdue = $daysUntil < 0;
                 $rule = ReminderRule::resolveFor($item);

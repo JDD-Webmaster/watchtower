@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Plus, Users, X } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { Combobox } from "@/components/Combobox";
 import { CATEGORY_PRESETS, type Recurrence } from "@/lib/types";
 
 export default function NewDeadlinePage() {
@@ -90,20 +91,16 @@ export default function NewDeadlinePage() {
 
             <div>
               <label className="block text-sm font-medium text-slate-900">Category</label>
-              <input
-                list="category-presets"
-                placeholder="Start typing or pick from the list..."
-                className="mt-1.5 w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-              />
-              <datalist id="category-presets">
-                {CATEGORY_PRESETS.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
+              <div className="mt-1.5">
+                <Combobox
+                  value={form.category}
+                  onChange={(v) => setForm({ ...form, category: v })}
+                  options={CATEGORY_PRESETS}
+                  placeholder="Click to browse, or type to search / enter your own"
+                />
+              </div>
               <p className="mt-1.5 text-xs text-slate-500">
-                Type anything — the list is just to help you stay consistent.
+                Pick from the list or type anything — it&apos;s just there to help you stay consistent.
               </p>
             </div>
 

@@ -22,7 +22,15 @@ return [
     // Credentialed requests (cookies) can't use '*' per the CORS spec —
     // list real origins. Comma-separated so a self-hoster can add their
     // own frontend URL without touching code.
-    'allowed_origins' => array_filter(explode(',', env('FRONTEND_URL', 'http://localhost:3000'))),
+    //
+    // FRONTEND_URLS is an optional extra list, for the case where the
+    // SPA is reachable on more than one host (e.g. localhost AND
+    // 127.0.0.1 — the browser picks whichever the user typed, and the
+    // Origin header has to be in this list or the cookie won't be sent).
+    'allowed_origins' => array_values(array_unique(array_filter(array_merge(
+        explode(',', (string) env('FRONTEND_URL', 'http://localhost:3000')),
+        explode(',', (string) env('FRONTEND_URLS', '')),
+    )))),
 
     'allowed_origins_patterns' => [],
 

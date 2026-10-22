@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\Organization;
+use App\Models\OrganizationInvitation;
+use App\Models\OrganizationMember;
 use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +25,13 @@ class AuthController extends Controller
 {
     public function register(Request $request): JsonResponse
     {
+        // Someone registering to accept a team invite already has an
+        // organization waiting for them — don't force them to also name
+        // one of their own.
+        $hasPendingInvite = OrganizationInvitation::where('email', $request->input('email'))
+            ->where('status', 'pending')
+            ->exists();
+
         $data = $request->validate([
             'name' => 'required|string|max:150',
             'email' => 'required|email|max:255|unique:users,email',
@@ -30,7 +39,7 @@ class AuthController extends Controller
             // A brand new user needs somewhere to put their first
             // deadline — create it alongside the account rather than
             // forcing a separate "create an organization" step first.
-            'organization_name' => 'required|string|max:150',
+            'organization_name' => $hasPendingInvite ? 'nullable|string|max:150' : 'required|string|max:150',
         ]);
 
         $user = User::create([
@@ -39,13 +48,46 @@ class AuthController extends Controller
             'password' => Hash::make($data['password']),
         ]);
 
-        $organization = Organization::create(['name' => $data['organization_name']]);
-        $organization->users()->attach($user->id, ['role' => 'owner']);
+        if (! empty($data['organization_name'])) {
+            $organization = Organization::create(['name' => $data['organization_name']]);
+            $organization->users()->attach($user->id, ['role' => 'owner']);
+        }
+
+        $this->redeemPendingInvitations($user);
 
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
         return response()->json(['data' => new UserResource($user->load('organizations'))], 201);
+    }
+
+    // Adds a brand-new user to every organization that invited their email
+    // address before they signed up — no invite-link click required, since
+    // registering with the invited address is itself the acceptance.
+    private function redeemPendingInvitations(User $user): void
+    {
+        $invitations = OrganizationInvitation::where('email', $user->email)
+            ->where('status', 'pending')
+            ->get();
+
+        foreach ($invitations as $invitation) {
+            $organization = $invitation->organization;
+
+            if (! $organization->users()->where('user_id', $user->id)->exists()) {
+                $organization->users()->attach($user->id, ['role' => $invitation->role]);
+                OrganizationMember::updateOrCreate(
+                    ['organization_id' => $organization->id, 'user_id' => $user->id],
+                    [
+                        'role' => $invitation->role,
+                        'can_receive_sms' => $invitation->can_receive_sms,
+                        'can_receive_email' => $invitation->can_receive_email,
+                        'joined_at' => now(),
+                    ]
+                );
+            }
+
+            $invitation->update(['status' => 'accepted', 'accepted_at' => now()]);
+        }
     }
 
     public function login(Request $request): JsonResponse

@@ -1,9 +1,10 @@
 "use client";
 import { useState, use, Fragment } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Mail, MessageSquare, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Mail, MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { DeadlineItem, ReminderLog, ReminderRule } from "@/lib/types";
@@ -106,6 +107,13 @@ export default function DeadlineDetailPage({ params }: { params: Promise<{ id: s
               Mark done
             </button>
           )}
+          <Link
+            href={`/dashboard/deadlines/${id}/edit`}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 border border-slate-300 px-3 py-2 rounded-lg hover:bg-slate-50"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            Edit
+          </Link>
           <button
             onClick={() => confirm("Delete this deadline and its reminder history?") && deleteMut.mutate()}
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-200 px-3 py-2 rounded-lg hover:bg-red-50"

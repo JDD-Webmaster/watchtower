@@ -171,6 +171,27 @@ docker exec api-watchtower php artisan tinker --execute='
 '
 ```
 
+### Paystack (wallet funding)
+
+The API calls Paystack directly and accepts `charge.success` webhooks at
+`https://api-watchtower.uselodger.com/api/webhooks/paystack`. In the Paystack
+dashboard, that exact URL must be registered under Settings → API Keys &
+Webhooks, and the secret shown there must match `PAYSTACK_WEBHOOK_SECRET` in
+`api-watchtower/.env` — otherwise every webhook is rejected with `401` and
+wallets are only credited when the buyer returns through the popup.
+
+Test vs live is decided by the key prefix (`pk_test_`/`sk_test_` vs
+`pk_live_`/`sk_live_`), not by any URL. To move to live money:
+
+```bash
+# edit api-watchtower/.env: both PAYSTACK_*_KEY values + PAYSTACK_WEBHOOK_SECRET
+docker exec api-watchtower php artisan config:clear
+docker exec api-watchtower php artisan config:cache
+```
+
+The wallet page shows a `TEST MODE` badge while test keys are in use. Never
+mix a live public key with a test secret key (or the reverse).
+
 ### Kill switch
 
 If the engine is misbehaving, turn it off without a deploy — set
@@ -221,3 +242,11 @@ Rebuild `nextjs-watchtower` explicitly.
 previous commit automatically when a health check fails. If migrations
 half-applied, check `docker exec api-watchtower php artisan migrate:status`
 before re-running.
+
+**Wallet funding isn't credited after paying.** Check the Paystack webhook
+delivery log in the Paystack dashboard first. A `401` means
+`PAYSTACK_WEBHOOK_SECRET` doesn't match the dashboard secret; a `422` means
+the amount or currency on the charge didn't match the payment intent. If the
+buyer paid but never returned to the app, the webhook is the only path that
+credits the wallet — confirm it is registered at the URL above and that the
+`api` container can reach Paystack.

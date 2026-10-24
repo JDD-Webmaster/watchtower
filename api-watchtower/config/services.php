@@ -48,4 +48,16 @@ return [
         'channel' => env('TERMII_CHANNEL', 'generic'),
     ],
 
+    // Paystack runs test and live on the same host — the key prefix is what
+    // decides which side of the fence a request lands on. sk_test_ means
+    // test mode, sk_live_ means real money. PAYSTACK_PAYMENT_URL is kept as
+    // a fallback for older .env files that only set that one.
+    'paystack' => [
+        'public_key' => env('PAYSTACK_PUBLIC_KEY'),
+        'secret_key' => env('PAYSTACK_SECRET_KEY'),
+        'base_url' => rtrim(env('PAYSTACK_BASE_URL', env('PAYSTACK_PAYMENT_URL', 'https://api.paystack.co')), '/'),
+        'webhook_secret' => env('PAYSTACK_WEBHOOK_SECRET'),
+        'webhook_url' => env('PAYSTACK_WEBHOOK_URL'),
+    ],
+
 ];

@@ -61,6 +61,31 @@ duplicate-send prevention, overdue escalation cadence, recurrence math
 (including month-end edge cases like Jan 31 → Feb 28), and the full
 authorization layer (org membership, owner-only settings).
 
+## Payments (Paystack)
+
+Wallet funding runs through Paystack's REST API and inline checkout. The
+controller never credits a wallet on its own — it only credits after Paystack
+confirms the charge, either through `POST /api/webhooks/paystack` (signature
+checked against `PAYSTACK_WEBHOOK_SECRET`) or through
+`POST /api/organizations/{id}/wallet/verify` (which re-checks the transaction
+with Paystack before crediting). Amount and currency must match the original
+intent, so a replayed reference cannot credit a different amount.
+
+Test vs live is decided **only** by the key prefix — `pk_test_`/`sk_test_`
+versus `pk_live_`/`sk_live_`. Both point at the same host
+(`https://api.paystack.co`), so switching modes is an env change, not a code
+change:
+
+1. Put the test keys and the test webhook secret in `.env`.
+2. Register the webhook URL in the Paystack dashboard (Settings → API Keys &
+   Webhooks): `https://api-watchtower.uselodger.com/api/webhooks/paystack`.
+3. Run the whole flow end to end (fund → popup → credited), including a
+   webhook delivery. The wallet page shows a `TEST MODE` badge while test
+   keys are active.
+4. When ready, replace **both** keys with the live keys, update
+   `PAYSTACK_WEBHOOK_SECRET`, then re-cache config:
+   `php artisan config:clear && php artisan config:cache`.
+
 ## Deployment
 
 Production runs at `https://api-watchtower.uselodger.com`. The deploy

@@ -1,12 +1,14 @@
 "use client";
 import { useState } from "react";
+import Script from "next/script";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowDownCircle, ArrowUpCircle, CreditCard, Wallet } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { openPaystackCheckout, PAYSTACK_SCRIPT_URL } from "@/lib/paystack";
 import { BalanceTrendChart } from "@/components/charts/BalanceTrendChart";
-import type { Wallet as WalletData, WalletTransaction } from "@/lib/types";
+import type { PaymentInitiation, Wallet as WalletData, WalletTransaction } from "@/lib/types";
 
 const PRESETS = [500, 1000, 2000, 5000];
 
@@ -15,6 +17,7 @@ export default function WalletPage() {
   const qc = useQueryClient();
   const [amount, setAmount] = useState(1000);
   const [custom, setCustom] = useState("");
+  const [mode, setMode] = useState<"test" | "live" | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["wallet", activeOrg?.id],
@@ -27,11 +30,48 @@ export default function WalletPage() {
     enabled: !!activeOrg,
   });
 
-  const fundMut = useMutation({
-    mutationFn: () => api.post(`/organizations/${activeOrg!.id}/wallet/fund`, { amount: Number(custom) || amount }),
+  const verifyMut = useMutation({
+    mutationFn: (reference: string) =>
+      api.post(`/organizations/${activeOrg!.id}/wallet/verify`, { reference }),
     onSuccess: () => {
-      toast.info("Payment initialized. Complete payment in the Paystack popup.");
+      toast.success("Wallet funded successfully.");
       qc.invalidateQueries({ queryKey: ["wallet", activeOrg?.id] });
+    },
+    onError: (e) =>
+      toast.error(
+        e instanceof ApiError
+          ? e.message
+          : "Payment went through but we could not confirm it yet. It will be credited automatically.",
+      ),
+  });
+
+  const fundMut = useMutation({
+    mutationFn: () =>
+      api.post<{ data: PaymentInitiation }>(
+        `/organizations/${activeOrg!.id}/wallet/fund`,
+        { amount: Number(custom) || amount },
+      ),
+    onSuccess: (res) => {
+      const init = res.data;
+      setMode(init.mode);
+
+      const opened = openPaystackCheckout({
+        publicKey: init.public_key,
+        email: init.email,
+        amountCents: init.amount_cents,
+        currency: init.currency,
+        reference: init.reference,
+        onSuccess: (response) => {
+          verifyMut.mutate(response.reference || init.reference);
+        },
+        onCancel: () => {
+          toast.info("Payment cancelled. Your wallet was not charged.");
+        },
+      });
+
+      if (!opened) {
+        toast.error("The Paystack checkout could not be loaded. Check your connection and try again.");
+      }
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Failed to initialize payment"),
   });
@@ -72,7 +112,7 @@ export default function WalletPage() {
               <p className="font-medium text-slate-900">How it works</p>
               <ul className="mt-2 space-y-1.5">
                 <li>• SMS is charged from your wallet on successful delivery</li>
-                <li>• We never use the platform owner's account</li>
+                <li>• We never use the platform owner&apos;s account</li>
                 <li>• If balance is insufficient, SMS is skipped until you fund</li>
                 <li>• Funds are only credited after payment confirmation</li>
               </ul>
@@ -81,12 +121,25 @@ export default function WalletPage() {
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-6 py-4">
-            <h2 className="flex items-center gap-2 font-semibold text-slate-900">
-              <CreditCard className="h-4 w-4" />
-              Fund wallet
-            </h2>
-            <p className="text-sm text-slate-500">Paystack (NGN) · Stripe ready</p>
+          <div className="flex items-start justify-between border-b border-slate-200 px-6 py-4">
+            <div>
+              <h2 className="flex items-center gap-2 font-semibold text-slate-900">
+                <CreditCard className="h-4 w-4" />
+                Fund wallet
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">Paystack (NGN) · Stripe ready</p>
+            </div>
+            {mode && (
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+                  mode === "live"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-700"
+                }`}
+              >
+                {mode} mode
+              </span>
+            )}
           </div>
           <div className="p-6">
             <p className="text-sm font-medium text-slate-900">Quick amounts</p>
@@ -128,11 +181,12 @@ export default function WalletPage() {
               {fundMut.isPending ? "Initializing…" : "Fund with Paystack"}
             </button>
             <p className="mt-3 text-xs text-slate-500">
-              Configure PAYSTACK_PUBLIC_KEY and PAYSTACK_SECRET_KEY in your environment to enable
-              live payments.
+              You will be taken to Paystack to complete the payment. Funds are credited only after
+              Paystack confirms the transaction.
             </p>
           </div>
         </section>
+
       </div>
 
       {trendPoints.length >= 2 && (
@@ -179,6 +233,13 @@ export default function WalletPage() {
           )}
         </div>
       </section>
+
+      <Script
+        src={PAYSTACK_SCRIPT_URL}
+        strategy="afterInteractive"
+        onError={() => toast.error("Could not load the Paystack checkout script. Refresh and try again.")}
+      />
     </div>
   );
 }
+

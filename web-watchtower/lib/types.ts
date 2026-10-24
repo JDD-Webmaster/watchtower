@@ -70,6 +70,18 @@ export interface WalletTransaction {
   created_at: string;
 }
 
+/** Shape of the payload the API returns after it initializes a Paystack payment. */
+export interface PaymentInitiation {
+  reference: string;
+  access_code: string | null;
+  amount_cents: number;
+  currency: string;
+  public_key: string;
+  email: string;
+  authorization_url: string | null;
+  mode: "test" | "live";
+}
+
 export interface ReminderLog {
   id: number;
   channel: "sms" | "email";

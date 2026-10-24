@@ -6,14 +6,21 @@ use App\Http\Controllers\Controller;
 use App\Models\Organization;
 use App\Models\PaymentIntent;
 use App\Models\Wallet;
-use App\Models\WalletTransaction;
+use App\Services\Payment\PaystackService;
+use App\Services\Payment\WalletFundingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class WalletController extends Controller
 {
+    public function __construct(
+        private readonly PaystackService $paystack,
+        private readonly WalletFundingService $funding,
+    ) {}
+
     public function show(Organization $organization): JsonResponse
     {
         $this->authorize('view', $organization);
@@ -54,37 +61,61 @@ class WalletController extends Controller
         $this->authorize('update', $organization);
 
         $data = $request->validate([
-            'amount' => 'required|integer|min:100',
-            'currency' => 'nullable|in:NGN,USD',
+            'amount' => ['required', 'integer', 'min:100'],
+            'currency' => ['nullable', 'in:NGN,USD'],
         ]);
+
+        if (! $this->paystack->isConfigured()) {
+            return response()->json([
+                'message' => 'Payments are not configured on this server. Set PAYSTACK_PUBLIC_KEY and PAYSTACK_SECRET_KEY.',
+            ], 503);
+        }
 
         $currency = $data['currency'] ?? 'NGN';
         $amountCents = $data['amount'] * 100;
         $reference = 'WT-'.Str::upper(Str::random(16));
 
+        try {
+            $transaction = $this->paystack->initializeTransaction([
+                'email' => $request->user()->email,
+                'amount' => $amountCents,
+                'currency' => $currency,
+                'reference' => $reference,
+                'callback_url' => rtrim(config('app.frontend_url'), '/').'/dashboard/wallet',
+                'metadata' => [
+                    'organization_id' => $organization->id,
+                    'payment_intent_reference' => $reference,
+                ],
+            ]);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
+
         PaymentIntent::create([
             'organization_id' => $organization->id,
             'provider' => 'paystack',
             'reference' => $reference,
+            'access_code' => $transaction['access_code'] ?? null,
+            'authorization_url' => $transaction['authorization_url'] ?? null,
             'amount_cents' => $amountCents,
             'currency' => $currency,
             'status' => 'pending',
-            'metadata' => ['email' => $request->user()->email],
+            'metadata' => [
+                'email' => $request->user()->email,
+                'paystack_reference' => $transaction['reference'] ?? $reference,
+            ],
         ]);
 
-        // Return Paystack-style initialization payload for the frontend.
-        // In production, call Paystack API here and return authorization_url.
-        // For now we return a structured payload the UI can consume.
         return response()->json([
             'data' => [
                 'reference' => $reference,
+                'access_code' => $transaction['access_code'] ?? null,
                 'amount_cents' => $amountCents,
                 'currency' => $currency,
-                'public_key' => config('services.paystack.public_key'),
+                'public_key' => $this->paystack->publicKey(),
                 'email' => $request->user()->email,
-                // When Paystack is fully configured, replace with real URL
-                'authorization_url' => null,
-                'message' => 'Payment initialization prepared. Configure PAYSTACK_SECRET_KEY/PUBLIC_KEY to enable live funding.',
+                'authorization_url' => $transaction['authorization_url'] ?? null,
+                'mode' => $this->paystack->mode(),
             ],
         ]);
     }
@@ -94,7 +125,7 @@ class WalletController extends Controller
         $this->authorize('update', $organization);
 
         $data = $request->validate([
-            'reference' => 'required|string',
+            'reference' => ['required', 'string'],
         ]);
 
         $intent = PaymentIntent::where('organization_id', $organization->id)
@@ -105,94 +136,122 @@ class WalletController extends Controller
             return response()->json(['message' => 'Already credited']);
         }
 
-        // In production verify with Paystack. Here we simulate a successful
-        // settlement only after verification - we never auto-credit on init.
-        // This avoids the "auto-refund after 24h" footgun: funds only become
-        // available_cents after webhook/verification marks as succeeded.
-        $wallet = $organization->wallet()->firstOrCreate(
-            ['organization_id' => $organization->id, 'currency' => $intent->currency],
-            ['balance_cents' => 0, 'available_cents' => 0, 'held_cents' => 0, 'status' => 'active']
-        );
+        try {
+            $transaction = $this->paystack->verifyTransaction($intent->reference);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
 
-        DB::transaction(function () use ($wallet, $intent) {
-            $wallet = Wallet::where('id', $wallet->id)->lockForUpdate()->first();
-            $wallet->balance_cents += $intent->amount_cents;
-            $wallet->available_cents += $intent->amount_cents;
-            $wallet->save();
+        if (($transaction['status'] ?? null) !== 'success') {
+            // "pending"/"processing" can be a momentary race with the popup
+            // callback — leave those alone so the webhook can still settle
+            // them. Only terminal failures are recorded as failed.
+            if (in_array($transaction['status'] ?? null, ['failed', 'abandoned', 'reversed'], true)) {
+                PaymentIntent::where('id', $intent->id)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'failed']);
+            }
 
-            WalletTransaction::create([
-                'wallet_id' => $wallet->id,
-                'organization_id' => $wallet->organization_id,
-                'user_id' => auth()->id(),
-                'type' => 'credit',
-                'amount_cents' => $intent->amount_cents,
-                'fee_cents' => 0,
-                'net_cents' => $intent->amount_cents,
-                'reason' => 'funding',
-                'reference' => $intent->reference,
-                'idempotency_key' => 'funding:'.$intent->reference,
-                'meta' => ['provider' => $intent->provider],
-                'balance_after_cents' => $wallet->balance_cents,
+            return response()->json(['message' => 'The payment has not completed yet.'], 422);
+        }
+
+        // The amount and currency Paystack charged have to match what we asked
+        // for, otherwise a reused or tampered reference could credit a
+        // different amount to the wallet.
+        if (($transaction['reference'] ?? null) !== $intent->reference) {
+            Log::error('[WalletController] Paystack reference mismatch', [
+                'expected' => $intent->reference,
+                'returned' => $transaction['reference'] ?? null,
             ]);
 
-            $intent->status = 'succeeded';
-            $intent->webhook_received_at = now();
-            $intent->save();
-        });
+            return response()->json(['message' => 'The payment does not match this funding request.'], 422);
+        }
 
-        return response()->json(['message' => 'Wallet funded successfully']);
+        if ((int) ($transaction['amount'] ?? 0) !== $intent->amount_cents) {
+            Log::error('[WalletController] Paystack amount mismatch', [
+                'reference' => $intent->reference,
+                'expected_cents' => $intent->amount_cents,
+                'charged_cents' => $transaction['amount'] ?? null,
+            ]);
+
+            return response()->json(['message' => 'The paid amount does not match the requested amount.'], 422);
+        }
+
+        if (strtoupper((string) ($transaction['currency'] ?? '')) !== strtoupper($intent->currency)) {
+            Log::error('[WalletController] Paystack currency mismatch', [
+                'reference' => $intent->reference,
+                'expected' => $intent->currency,
+                'charged' => $transaction['currency'] ?? null,
+            ]);
+
+            return response()->json(['message' => 'The paid currency does not match the requested currency.'], 422);
+        }
+
+        $credited = $this->funding->credit($intent, $request->user()->id, ['source' => 'verify']);
+
+        return response()->json([
+            'message' => $credited ? 'Wallet funded successfully' : 'Already credited',
+            'data' => [
+                'reference' => $intent->reference,
+                'status' => $intent->fresh()->status,
+                'amount_cents' => $intent->amount_cents,
+            ],
+        ]);
     }
 
     public function paystackWebhook(Request $request): JsonResponse
     {
-        // Verify signature in production using config('services.paystack.secret_key')
-        $payload = $request->all();
+        // Paystack signs the raw body; the JSON-decoded payload cannot be
+        // used here or the digest will not match.
+        if (! $this->paystack->hasValidSignature($request->getContent(), $request->header('x-paystack-signature'))) {
+            Log::warning('[WalletController] rejected a Paystack webhook with an invalid signature');
+
+            return response()->json(['message' => 'Invalid signature'], 401);
+        }
+
+        $payload = $request->json()->all();
         $event = $payload['event'] ?? null;
+        $data = $payload['data'] ?? [];
+        $reference = $data['reference'] ?? null;
 
         if ($event === 'charge.success') {
-            $data = $payload['data'] ?? [];
-            $reference = $data['reference'] ?? null;
             if (! $reference) {
                 return response()->json(['message' => 'ok']);
             }
 
             $intent = PaymentIntent::where('reference', $reference)->first();
-            if (! $intent || $intent->status === 'succeeded') {
+
+            if (! $intent) {
                 return response()->json(['message' => 'ok']);
             }
 
-            $wallet = $intent->organization->wallet()->firstOrCreate(
-                ['organization_id' => $intent->organization_id, 'currency' => $intent->currency],
-                ['balance_cents' => 0, 'available_cents' => 0, 'held_cents' => 0, 'status' => 'active']
-            );
+            if ((int) ($data['amount'] ?? 0) !== $intent->amount_cents) {
+                Log::error('[WalletController] Paystack webhook amount mismatch', [
+                    'reference' => $reference,
+                    'expected_cents' => $intent->amount_cents,
+                    'charged_cents' => $data['amount'] ?? null,
+                ]);
 
-            DB::transaction(function () use ($wallet, $intent) {
-                $wallet = Wallet::where('id', $wallet->id)->lockForUpdate()->first();
-                $wallet->balance_cents += $intent->amount_cents;
-                $wallet->available_cents += $intent->amount_cents;
-                $wallet->save();
+                return response()->json(['message' => 'Amount mismatch'], 422);
+            }
 
-                WalletTransaction::firstOrCreate(
-                    ['idempotency_key' => 'funding:'.$intent->reference],
-                    [
-                        'wallet_id' => $wallet->id,
-                        'organization_id' => $wallet->organization_id,
-                        'user_id' => null,
-                        'type' => 'credit',
-                        'amount_cents' => $intent->amount_cents,
-                        'fee_cents' => 0,
-                        'net_cents' => $intent->amount_cents,
-                        'reason' => 'funding',
-                        'reference' => $intent->reference,
-                        'meta' => ['provider' => 'paystack', 'webhook' => true],
-                        'balance_after_cents' => $wallet->balance_cents,
-                    ]
-                );
+            if (isset($data['currency']) && strtoupper((string) $data['currency']) !== strtoupper($intent->currency)) {
+                Log::error('[WalletController] Paystack webhook currency mismatch', [
+                    'reference' => $reference,
+                    'expected' => $intent->currency,
+                    'charged' => $data['currency'],
+                ]);
 
-                $intent->status = 'succeeded';
-                $intent->webhook_received_at = now();
-                $intent->save();
-            });
+                return response()->json(['message' => 'Currency mismatch'], 422);
+            }
+
+            $this->funding->credit($intent, null, ['source' => 'webhook', 'webhook' => true]);
+        }
+
+        if (in_array($event, ['charge.failed', 'transaction.failed'], true) && $reference) {
+            PaymentIntent::where('reference', $reference)
+                ->where('status', 'pending')
+                ->update(['status' => 'failed']);
         }
 
         return response()->json(['message' => 'ok']);

@@ -20,6 +20,9 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!user) return;
+    // Seeding editable form fields from the fetched user record once it
+    // loads — not a value derivable at render time.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPrefs(user.notification_preferences || { email: true, sms: true });
     setPhone(user.phone ?? "");
     setCountry(user.country ?? "");
@@ -54,6 +57,9 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (activeOrg) {
+      // Seeding editable form fields from the active org once it loads —
+      // not a value derivable at render time.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOrgName(activeOrg.name);
       setOrgTz(activeOrg.timezone);
     }
@@ -61,6 +67,9 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (orgRule) {
+      // Seeding editable form fields from the fetched reminder rule once it
+      // loads — not a value derivable at render time.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOffsets(orgRule.offsets_days.join(", "));
       setOverdueRepeat(String(orgRule.overdue_repeat_days));
     }

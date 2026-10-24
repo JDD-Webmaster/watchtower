@@ -82,10 +82,8 @@ export const COMMON_TIMEZONES = [
 
 export function getAllTimezones(): string[] {
   try {
-    // @ts-ignore - supportedValuesOf is available in modern JS
     if (typeof Intl.supportedValuesOf === "function") {
-      // @ts-ignore
-      const all = Intl.supportedValuesOf("timeZone");
+      const all = (Intl as unknown as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf("timeZone");
       return Array.from(new Set([...COMMON_TIMEZONES, ...all])).sort();
     }
   } catch {}

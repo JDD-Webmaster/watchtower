@@ -157,7 +157,9 @@ class WalletController extends Controller
 
         // The amount and currency Paystack charged have to match what we asked
         // for, otherwise a reused or tampered reference could credit a
-        // different amount to the wallet.
+        // different amount to the wallet. Paystack adds transaction fees in
+        // test/live depending on settings; prefer requested_amount if present
+        // and only credit what the user asked to fund.
         if (($transaction['reference'] ?? null) !== $intent->reference) {
             Log::error('[WalletController] Paystack reference mismatch', [
                 'expected' => $intent->reference,
@@ -167,11 +169,27 @@ class WalletController extends Controller
             return response()->json(['message' => 'The payment does not match this funding request.'], 422);
         }
 
-        if ((int) ($transaction['amount'] ?? 0) !== $intent->amount_cents) {
-            Log::error('[WalletController] Paystack amount mismatch', [
+        $chargedAmount = (int) ($transaction['amount'] ?? 0);
+        $requestedAmount = array_key_exists('requested_amount', $transaction)
+            ? (int) $transaction['requested_amount']
+            : (isset($transaction['requestedAmount']) ? (int) $transaction['requestedAmount'] : $intent->amount_cents);
+
+        if ($requestedAmount !== $intent->amount_cents) {
+            Log::error('[WalletController] Paystack requested amount mismatch', [
                 'reference' => $intent->reference,
                 'expected_cents' => $intent->amount_cents,
-                'charged_cents' => $transaction['amount'] ?? null,
+                'requested_cents' => $requestedAmount,
+                'charged_cents' => $chargedAmount,
+            ]);
+
+            return response()->json(['message' => 'The paid amount does not match the requested amount.'], 422);
+        }
+
+        if ($chargedAmount < $intent->amount_cents) {
+            Log::error('[WalletController] Paystack charged less than requested', [
+                'reference' => $intent->reference,
+                'expected_cents' => $intent->amount_cents,
+                'charged_cents' => $chargedAmount,
             ]);
 
             return response()->json(['message' => 'The paid amount does not match the requested amount.'], 422);
@@ -225,7 +243,17 @@ class WalletController extends Controller
                 return response()->json(['message' => 'ok']);
             }
 
-            if ((int) ($data['amount'] ?? 0) !== $intent->amount_cents) {
+            if (isset($data['requested_amount'])) {
+                if ((int) $data['requested_amount'] !== $intent->amount_cents) {
+                    Log::error('[WalletController] Paystack webhook requested amount mismatch', [
+                        'reference' => $reference,
+                        'expected_cents' => $intent->amount_cents,
+                        'requested_cents' => $data['requested_amount'],
+                    ]);
+
+                    return response()->json(['message' => 'Amount mismatch'], 422);
+                }
+            } elseif ((int) ($data['amount'] ?? 0) < $intent->amount_cents) {
                 Log::error('[WalletController] Paystack webhook amount mismatch', [
                     'reference' => $reference,
                     'expected_cents' => $intent->amount_cents,
@@ -233,16 +261,6 @@ class WalletController extends Controller
                 ]);
 
                 return response()->json(['message' => 'Amount mismatch'], 422);
-            }
-
-            if (isset($data['currency']) && strtoupper((string) $data['currency']) !== strtoupper($intent->currency)) {
-                Log::error('[WalletController] Paystack webhook currency mismatch', [
-                    'reference' => $reference,
-                    'expected' => $intent->currency,
-                    'charged' => $data['currency'],
-                ]);
-
-                return response()->json(['message' => 'Currency mismatch'], 422);
             }
 
             $this->funding->credit($intent, null, ['source' => 'webhook', 'webhook' => true]);

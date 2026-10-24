@@ -42,7 +42,7 @@ export default function SupportPage() {
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-6 py-4">
             <h2 className="font-semibold text-slate-900">Send a message</h2>
-            <p className="text-sm text-slate-500">We'll reply to hello@uselodger.com</p>
+            <p className="text-sm text-slate-500">We&apos;ll reply to hello@uselodger.com</p>
           </div>
           <form onSubmit={submit} className="space-y-4 p-6">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -132,7 +132,7 @@ export default function SupportPage() {
             <h3 className="font-semibold text-amber-900">SMS costs</h3>
             <p className="mt-2 text-sm text-amber-800">
               SMS messages incur provider charges. Each organisation uses its own dedicated wallet to
-              fund SMS. We never charge from the platform owner's account. Fund your wallet to keep
+              fund SMS. We never charge from the platform owner&apos;s account. Fund your wallet to keep
               SMS reminders going.
             </p>
           </section>

@@ -1,5 +1,6 @@
 "use client";
 import PhoneInput, { type Country } from "react-phone-number-input";
+import flags from "react-phone-number-input/flags";
 import "react-phone-number-input/style.css";
 
 interface PhoneNumberFieldProps {
@@ -35,6 +36,7 @@ export function PhoneNumberField({
     <PhoneInput
       id={id}
       international
+      flags={flags}
       value={value}
       onChange={(v) => onChange(v ?? "")}
       country={country}

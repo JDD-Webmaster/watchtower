@@ -8,6 +8,7 @@ use App\Models\Organization;
 use App\Models\OrganizationInvitation;
 use App\Models\OrganizationMember;
 use App\Models\User;
+use App\Services\Phone\PhoneNumberNormalizer;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,12 +41,27 @@ class AuthController extends Controller
             // deadline — create it alongside the account rather than
             // forcing a separate "create an organization" step first.
             'organization_name' => $hasPendingInvite ? 'nullable|string|max:150' : 'required|string|max:150',
+            // Optional at signup — someone who skips it still gets an
+            // account, just without SMS until they add one in Settings.
+            'phone' => 'nullable|string|max:20',
+            'country' => 'nullable|string|size:2',
         ]);
+
+        $phone = null;
+        $country = $data['country'] ?? null;
+
+        if (! empty($data['phone'])) {
+            $normalized = PhoneNumberNormalizer::normalize($data['phone'], $country);
+            $phone = $normalized['phone'];
+            $country = $normalized['country'];
+        }
 
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
+            'phone' => $phone,
+            'country' => $country,
         ]);
 
         if (! empty($data['organization_name'])) {

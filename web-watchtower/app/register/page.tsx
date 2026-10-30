@@ -12,6 +12,8 @@ import {
   inputClassName,
   PasswordField,
 } from "@/components/AuthInputs";
+import { PhoneNumberField } from "@/components/PhoneNumberField";
+import type { Country } from "react-phone-number-input";
 
 function RegisterForm() {
   const router = useRouter();
@@ -25,6 +27,8 @@ function RegisterForm() {
     password_confirmation: "",
     organization_name: "",
   });
+  const [phone, setPhone] = useState("");
+  const [phoneCountry, setPhoneCountry] = useState<Country | undefined>("NG");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -55,7 +59,11 @@ function RegisterForm() {
     setFieldErrors({});
     setFormError(null);
     try {
-      await api.post("/register", form);
+      await api.post("/register", {
+        ...form,
+        phone: phone || undefined,
+        country: phone ? phoneCountry : undefined,
+      });
       refetchUser();
       router.push("/dashboard");
     } catch (err) {
@@ -200,6 +208,26 @@ function RegisterForm() {
             )}
           </>
         )}
+
+        <AuthField
+          id="phone"
+          label="Phone number (optional)"
+          hint={
+            !fieldErrors.phone
+              ? "So we can text you before deadlines. Add it now or later in Settings."
+              : undefined
+          }
+          error={fieldErrors.phone}
+        >
+          <PhoneNumberField
+            id="phone"
+            value={phone}
+            onChange={setPhone}
+            country={phoneCountry}
+            onCountryChange={setPhoneCountry}
+            error={Boolean(fieldErrors.phone)}
+          />
+        </AuthField>
 
         <PasswordField
           id="password"

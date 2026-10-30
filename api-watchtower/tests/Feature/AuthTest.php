@@ -37,6 +37,53 @@ describe('Registration', function () {
             ->and($user->organizations->first()->name)->toBe('Ada Co');
     });
 
+    it('registers without a phone number — SMS just stays off until one is added', function () {
+        $response = $this->postJson('/api/register', [
+            'name' => 'Grace Hopper',
+            'email' => 'grace@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'organization_name' => 'Hopper Co',
+        ]);
+
+        $response->assertStatus(201);
+
+        $user = User::where('email', 'grace@example.com')->first();
+        expect($user->phone)->toBeNull();
+    });
+
+    it('normalizes a national-format phone number to E.164 using the selected country', function () {
+        $response = $this->postJson('/api/register', [
+            'name' => 'Wangari Maathai',
+            'email' => 'wangari@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'organization_name' => 'Maathai Co',
+            'phone' => '0712345678',
+            'country' => 'KE',
+        ]);
+
+        $response->assertStatus(201);
+
+        $user = User::where('email', 'wangari@example.com')->first();
+        expect($user->phone)->toBe('+254712345678')
+            ->and($user->country)->toBe('KE');
+    });
+
+    it('rejects a phone number that is not valid for the selected country', function () {
+        $this->postJson('/api/register', [
+            'name' => 'Bad Number',
+            'email' => 'badnumber@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'organization_name' => 'Bad Co',
+            'phone' => '123',
+            'country' => 'NG',
+        ])->assertStatus(422)->assertJsonValidationErrors('phone');
+
+        expect(User::where('email', 'badnumber@example.com')->exists())->toBeFalse();
+    });
+
 });
 
 describe('Login', function () {

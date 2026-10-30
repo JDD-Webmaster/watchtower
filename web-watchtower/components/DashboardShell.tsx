@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageSquareOff,
   Plus,
   Settings,
   Users,
@@ -52,10 +53,44 @@ function DashboardNav() {
   );
 }
 
+// Only hidden on the Settings page itself (telling someone already there to
+// "go add it in Settings" is just noise) — isolated in its own component so
+// its usePathname() call sits behind the same Suspense boundary DashboardNav
+// already needs for the same reason (static prerendering can't resolve the
+// current URL ahead of time).
+function PhoneNudgeBanner({ onDismiss }: { onDismiss: () => void }) {
+  const pathname = usePathname();
+  if (pathname === "/dashboard/settings") return null;
+
+  return (
+    <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <MessageSquareOff className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+      <div className="flex-1">
+        No phone number on file — SMS reminders can&apos;t reach you yet.{" "}
+        <Link
+          href="/dashboard/settings"
+          className="font-semibold underline underline-offset-2 hover:text-amber-700"
+        >
+          Add one in Settings
+        </Link>
+        .
+      </div>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="shrink-0 text-amber-600 hover:text-amber-800"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, isLoading, activeOrg, setActiveOrgId, refetchUser } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [phoneNudgeDismissed, setPhoneNudgeDismissed] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) router.push("/login");
@@ -70,6 +105,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   if (isLoading || !user) {
     return <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">Loading…</div>;
   }
+
+  // SMS defaults to "on" until a user opts out (see UserResource/ReminderDispatchService),
+  // so a missing phone number here means reminders are silently never sent, not that the
+  // user chose email-only.
+  const showPhoneNudge =
+    !phoneNudgeDismissed && !user.phone && (user.notification_preferences?.sms ?? true);
 
   return (
     <div className="flex-1 flex min-h-0">
@@ -162,7 +203,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         )}
 
         <main className="flex-1 overflow-auto">
-          <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">{children}</div>
+          <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+            {showPhoneNudge && (
+              <Suspense fallback={null}>
+                <PhoneNudgeBanner onDismiss={() => setPhoneNudgeDismissed(true)} />
+              </Suspense>
+            )}
+            {children}
+          </div>
         </main>
       </div>
     </div>

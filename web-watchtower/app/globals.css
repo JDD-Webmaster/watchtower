@@ -21,3 +21,42 @@ body {
   outline: 2px solid var(--color-slate-900);
   outline-offset: 1px;
 }
+
+/* International phone input (react-phone-number-input) — styled to match
+   the plain .input/AuthField look rather than the library's own CSS. */
+.watchtower-phone-field {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-slate-300);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  background: white;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.watchtower-phone-field:focus-within {
+  border-color: var(--color-slate-900);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-slate-900) 10%, transparent);
+}
+
+.watchtower-phone-field--error {
+  border-color: var(--color-red-400);
+}
+
+.watchtower-phone-field--error:focus-within {
+  border-color: var(--color-red-500);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-red-500) 20%, transparent);
+}
+
+.watchtower-phone-field .PhoneInputCountry {
+  margin-right: 0.5rem;
+}
+
+.watchtower-phone-field__input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.875rem;
+  flex: 1;
+  min-width: 0;
+}

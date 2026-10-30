@@ -2,11 +2,13 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Globe, Mail, MessageSquare, Phone, User } from "lucide-react";
+import { Mail, MessageSquare, User } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { ReminderRule } from "@/lib/types";
-import { countries, getAllTimezones } from "@/lib/countries";
+import { getAllTimezones } from "@/lib/countries";
+import { PhoneNumberField } from "@/components/PhoneNumberField";
+import type { Country } from "react-phone-number-input";
 
 export default function SettingsPage() {
   const { user, activeOrg, refetchUser } = useAuth();
@@ -15,8 +17,9 @@ export default function SettingsPage() {
 
   const [prefs, setPrefs] = useState({ email: true, sms: true });
   const [phone, setPhone] = useState("");
-  const [country, setCountry] = useState("");
+  const [country, setCountry] = useState<Country | undefined>(undefined);
   const [userTz, setUserTz] = useState("");
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -25,23 +28,31 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPrefs(user.notification_preferences || { email: true, sms: true });
     setPhone(user.phone ?? "");
-    setCountry(user.country ?? "");
+    setCountry((user.country as Country) || undefined);
     setUserTz(user.timezone ?? "");
   }, [user]);
 
   const savePrefsMut = useMutation({
-    mutationFn: () =>
-      api.patch("/user", {
+    mutationFn: () => {
+      setPhoneError(null);
+      return api.patch("/user", {
         notification_preferences: prefs,
         phone,
         country,
         timezone: userTz || null,
-      }),
+      });
+    },
     onSuccess: () => {
       toast.success("Preferences saved");
       refetchUser();
     },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Failed"),
+    onError: (e) => {
+      if (e instanceof ApiError && e.errors?.phone?.[0]) {
+        setPhoneError(e.errors.phone[0]);
+      } else {
+        toast.error(e instanceof ApiError ? e.message : "Failed");
+      }
+    },
   });
 
   const { data: orgRule } = useQuery({
@@ -122,37 +133,31 @@ export default function SettingsPage() {
             <p className="text-sm text-slate-500">Control how and where you get reminded</p>
           </div>
           <div className="space-y-5 p-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-slate-900">Phone (for SMS)</label>
-                <div className="relative mt-1.5">
-                  <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+234 801 234 5678 or 08012345678"
-                  />
-                </div>
+            <div className="sm:max-w-md">
+              <label htmlFor="phone" className="block text-sm font-medium text-slate-900">
+                Phone (for SMS)
+              </label>
+              <div className="mt-1.5">
+                <PhoneNumberField
+                  id="phone"
+                  value={phone}
+                  onChange={(v) => {
+                    setPhone(v);
+                    if (phoneError) setPhoneError(null);
+                  }}
+                  country={country}
+                  onCountryChange={setCountry}
+                  error={Boolean(phoneError)}
+                />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-900">Country</label>
-                <div className="relative mt-1.5">
-                  <Globe className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <select
-                    className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-                    value={country}
-                    onChange={(e) => setCountry(e.target.value)}
-                  >
-                    <option value="">— Select country —</option>
-                    {countries.map((c) => (
-                      <option key={c.iso2} value={c.iso2}>
-                        {c.emoji} {c.name} (+{c.phone_code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              {phoneError ? (
+                <p className="mt-1.5 text-xs text-red-600">{phoneError}</p>
+              ) : (
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Pick the country first if the number isn&apos;t already in international
+                  format.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-900">Your timezone</label>
